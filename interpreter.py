@@ -34,7 +34,7 @@ class PeakIter:
         return self.iterator
 
     def __next__(self):
-        return self.iterator.next()
+        return self.iterator.__next__()
 
     def iter(self):
         return self.__iter__()
