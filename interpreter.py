@@ -9,14 +9,16 @@ from typing import Protocol, Any
 # print
 
 class TokenType(Enum):
-    ADD = "+"
-    SUBTRACT = "-"
-    MULTIPLY = "*"
-    DIVIDE = "/" 
-    POWER = "**"
-    OPEN_PARENTHESES = "("
-    CLOSE_PARENTHESES = ")" 
+    ADD = " + "
+    SUBTRACT = " - "
+    MULTIPLY = " * "
+    DIVIDE = " / " 
+    POWER = " ** "
+    OPEN_PARENTHESES = " ("
+    CLOSE_PARENTHESES = ") "
     NUMBER = "num" 
+    UNARY_PLUS = " +"
+    UNARY_MINUS = " -"
     EOF = "EOF"
     @property
     def operation(self):
@@ -25,7 +27,9 @@ class TokenType(Enum):
             TokenType.SUBTRACT: lambda l,r: l - r,
             TokenType.MULTIPLY: lambda l,r: l * r,
             TokenType.DIVIDE: lambda l,r: l / r,
-            TokenType.POWER: lambda l,r: l**r
+            TokenType.POWER: lambda l,r: l**r,
+            TokenType.UNARY_PLUS: lambda o: o,
+            TokenType.UNARY_MINUS: lambda o: -o
         }.get(self, None)
 
 @dataclass
@@ -134,6 +138,13 @@ class BinaryOperator():
     def to_str(self) -> str:
         return f"({self.left.to_str()} {self.operator.token_type.value} {self.right.to_str()})"
 
+@dataclass
+class UnaryOperator():
+    operator: Token
+    operand: Expression
+    def to_str(self) -> str:
+        return f"{self.operator.token_type.value}{self.operand.to_str()}"
+
 
 def parse(tokens: [Token]) -> Expression:
     ast = parse_additive(tokens)
@@ -141,6 +152,18 @@ def parse(tokens: [Token]) -> Expression:
         raise SyntaxError("Error, expected end of file!")
     return ast
 
+def parse_unary(tokens: [Token]) -> Expression:
+    match tokens.pop(0).token_type:
+        case TokenType.ADD:
+            operator = Token(TokenType.UNARY_PLUS)
+        case TokenType.SUBTRACT:
+            operator = Token(TokenType.UNARY_MINUS)
+        case _:
+            raise SyntaxError("Unknown Unary operator")
+            
+    operand = parse_power(tokens)
+    return UnaryOperator(operator, operand)
+    
 
 def parse_parenthesised(tokens: [Token]) -> Expression:
     tokens.pop(0)
@@ -188,6 +211,8 @@ def parse_primitive(tokens: [Token]) -> Expression:
             return Literal(tokens.pop(0))
         case TokenType.OPEN_PARENTHESES:
             return parse_parenthesised(tokens)
+        case TokenType.ADD | TokenType.SUBTRACT:
+            return parse_unary(tokens)
         case _:
             raise SyntaxError(f"Unexpected token when parsing primitive {tokens[0].token_type}")
 
@@ -197,6 +222,8 @@ def evaluator(ast: Expression):
         return ast.token.value
     elif type(ast) is BinaryOperator:
         return ast.operator.operation(evaluator(ast.left), evaluator(ast.right))
+    elif type(ast) is UnaryOperator:
+        return ast.operator.operation(evaluator(ast.operand))
     else:
         raise SyntaxError("Unable to evaluate")
 
@@ -265,8 +292,43 @@ def test_evaluator():
 
     # Edge and invalid cases
     assert eval_expr("0 ** 0") == 1
-    #assert eval_expr("2 ** -1") == 0.5
-    #assert eval_expr("4 ** -0.5") == 0.5
+    assert eval_expr("2 ** -1") == 0.5
+    assert eval_expr("4 ** -0.5") == 0.5
+    # Unary plus
+    assert eval_expr("+1") == 1
+    assert eval_expr("+(2 + 3)") == 5
+    assert eval_expr("+(+4)") == 4
+    assert eval_expr("+(+(-5))") == -5
+
+    # Unary minus
+    assert eval_expr("-1") == -1
+    assert eval_expr("-(2 + 3)") == -5
+    assert eval_expr("-(-4)") == 4
+    assert eval_expr("-(-(-6))") == -6
+
+    # Unary operators with power
+    assert eval_expr("-2 ** 2") == -4
+    assert eval_expr("(-2) ** 2") == 4
+    assert eval_expr("-(2 ** 2)") == -4
+    assert eval_expr("+2 ** 3") == 8
+
+    # Unary with multiplication and division
+    assert eval_expr("-2 * 3") == -6
+    assert eval_expr("2 * -3") == -6
+    assert eval_expr("-2 * -3") == 6
+    assert eval_expr("4 / -2") == -2
+    assert eval_expr("-4 / -2") == 2
+
+    # Unary with parentheses and nesting
+    assert eval_expr("-(1 + 2) * 3") == -9
+    assert eval_expr("-(1 + 2 * (3 + 4))") == -15
+    assert eval_expr("+(((-3)))") == -3
+
+    # Multiple unary operators
+    assert eval_expr("--1") == 1
+    assert eval_expr("---1") == -1
+    assert eval_expr("----1") == 1
+    assert eval_expr("+-+2") == -2
 
 def main():
     test_evaluator()
