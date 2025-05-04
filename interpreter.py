@@ -13,17 +13,28 @@ class TokenType(Enum):
     SUBTRACT = "-"
     MULTIPLY = "*"
     DIVIDE = "/" 
-
+    POWER = "**"
     OPEN_PARENTHESES = "("
     CLOSE_PARENTHESES = ")" 
-
     NUMBER = "num" 
     EOF = "EOF"
+    @property
+    def operation(self):
+        return {
+            TokenType.ADD: lambda l, r: l + r, 
+            TokenType.SUBTRACT: lambda l,r: l - r,
+            TokenType.MULTIPLY: lambda l,r: l * r,
+            TokenType.DIVIDE: lambda l,r: l / r,
+            TokenType.POWER: lambda l,r: l**r
+        }.get(self, None)
 
 @dataclass
 class Token:
     token_type: TokenType
-    value: Any = None 
+    value: Any = None
+    @property
+    def operation(self):
+        return self.token_type.operation
 
 class PeakIter:
     def __init__(self, iterable):
@@ -60,13 +71,19 @@ def tokenize(str):
             char = iter.next()
             match char: 
                 case "+":
-                    tokens.append(Token(TokenType.ADD, lambda l, r: l + r)) 
+                    tokens.append(Token(TokenType.ADD))
                 case "-":
-                    tokens.append(Token(TokenType.SUBTRACT, lambda l,r: l - r))
+                    tokens.append(Token(TokenType.SUBTRACT))
                 case "*":
-                    tokens.append(Token(TokenType.MULTIPLY, lambda l,r: l * r))
+                    if iter.peak() == "*":
+                        iter.next()
+                        tokens.append(Token(TokenType.POWER))
+                    else:
+                        tokens.append(Token(TokenType.MULTIPLY))
                 case "/":
-                    tokens.append(Token(TokenType.DIVIDE, lambda l,r: l / r))
+                    tokens.append(Token(TokenType.DIVIDE))
+                case "!":
+                    raise SyntaxError("! not yet implemented")  # Todo!
                 case "(":
                     tokens.append(Token(TokenType.OPEN_PARENTHESES))
                 case ")":
@@ -134,15 +151,6 @@ def parse_parenthesised(tokens: [Token]) -> Expression:
     return expr
 
 
-def parse_primitive(tokens: [Token]) -> Expression:
-    match tokens[0].token_type:
-        case TokenType.NUMBER:
-            return Literal(tokens.pop(0))
-        case TokenType.OPEN_PARENTHESES:
-            return parse_parenthesised(tokens)
-        case _:
-            raise SyntaxError(f"Unexpected token {tokens[0].token_type}")
-
 def parse_additive(tokens: [Token]) -> Expression:
     left = parse_multiplicative(tokens) 
     while tokens[0].token_type == TokenType.ADD or tokens[0].token_type == TokenType.SUBTRACT:
@@ -153,23 +161,42 @@ def parse_additive(tokens: [Token]) -> Expression:
     
 
 def parse_multiplicative(tokens: [Token]) -> Expression:
-    left = parse_primitive(tokens)
+    left = parse_power(tokens)
     while tokens[0].token_type in [TokenType.MULTIPLY, TokenType.DIVIDE, TokenType.OPEN_PARENTHESES]:
         if tokens[0].token_type ==  TokenType.OPEN_PARENTHESES:
-            operator = Token(TokenType.MULTIPLY, lambda l,r: l*r)
+            operator = Token(TokenType.MULTIPLY)
             right = parse_parenthesised(tokens)
         else:
             operator = tokens.pop(0)
-            right = parse_primitive(tokens)
+            right = parse_power(tokens)
         left = BinaryOperator(left, operator, right)
     return left
+
+
+def parse_power(tokens: [Token]) -> Expression:
+    left = parse_primitive(tokens) 
+    while tokens[0].token_type == TokenType.POWER:
+        operator = tokens.pop(0)
+        right = parse_primitive(tokens)
+        left = BinaryOperator(left, operator, right)
+    return left
+
+
+def parse_primitive(tokens: [Token]) -> Expression:
+    match tokens[0].token_type:
+        case TokenType.NUMBER:
+            return Literal(tokens.pop(0))
+        case TokenType.OPEN_PARENTHESES:
+            return parse_parenthesised(tokens)
+        case _:
+            raise SyntaxError(f"Unexpected token when parsing primitive {tokens[0].token_type}")
 
 
 def evaluator(ast: Expression):
     if type(ast) is Literal:
         return ast.token.value
     elif type(ast) is BinaryOperator:
-        return ast.operator.value(evaluator(ast.left), evaluator(ast.right))
+        return ast.operator.operation(evaluator(ast.left), evaluator(ast.right))
     else:
         raise SyntaxError("Unable to evaluate")
 
@@ -212,7 +239,34 @@ def test_evaluator():
     assert eval_expr("2(3 + 4) + 1") == 15
     assert eval_expr("2(3 + 4)(5 + 1)") == 84
     assert eval_expr("(2 + 3)(4 + 1)(6)") == 150
+    
+    # Power operator
+    assert eval_expr("2 ** 3") == 8
+    assert eval_expr("4 ** 0.5") == 2.0
+    assert eval_expr("5 ** 1") == 5
+    assert eval_expr("9 ** 0") == 1
 
+    # Power with precedence over multiplication/addition
+    assert eval_expr("2 + 3 ** 2") == 11
+    assert eval_expr("2 * 3 ** 2") == 18
+    assert eval_expr("2 ** 3 * 4") == 32
+    assert eval_expr("2 * 3 ** 2 + 1") == 19
+
+    # Parentheses with power
+    assert eval_expr("(2 + 1) ** 2") == 9
+    assert eval_expr("2 ** (1 + 2)") == 8
+    assert eval_expr("(2 ** 3) ** 2") == 64
+    assert eval_expr("2 ** (3 ** 2)") == 512
+
+    # Nested and mixed operations
+    assert eval_expr("(2 + 1)(3 ** 2)") == 27
+    assert eval_expr("2(3 ** 2)") == 18
+    assert eval_expr("(1 + 2)(2 ** 2)(1 + 1)") == 24
+
+    # Edge and invalid cases
+    assert eval_expr("0 ** 0") == 1
+    #assert eval_expr("2 ** -1") == 0.5
+    #assert eval_expr("4 ** -0.5") == 0.5
 
 def main():
     test_evaluator()
