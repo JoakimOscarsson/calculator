@@ -68,6 +68,16 @@ class PeakIter:
         
 
 def tokenize(str):
+    def build_number(number: str, iter: PeakIter):
+        try:
+            peaked = iter.peak()
+        except StopIteration:
+            return number
+        if peaked in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "."]:
+            return build_number(number+iter.next(), iter)
+        else:
+            return number
+    
     tokens = []
     iter = PeakIter(str)
     while True:
@@ -107,16 +117,6 @@ def tokenize(str):
     tokens.append(Token(TokenType.EOF))
     return tokens
         
-def build_number(number: str, iter: PeakIter):
-    try:
-        peaked = iter.peak()
-    except StopIteration:
-        return number
-    if peaked in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "."]:
-        return build_number(number+iter.next(), iter)
-    else:
-        return number
-
 
 class Expression(Protocol):
     def to_str(self) -> str:
@@ -192,6 +192,8 @@ def parse_multiplicative(tokens: [Token]) -> Expression:
         else:
             operator = tokens.pop(0)
             right = parse_power(tokens)
+            if operator.token_type is TokenType.DIVIDE and right == 0:
+                raise ZeroDivisionError()
         left = BinaryOperator(left, operator, right)
     return left
 
@@ -342,8 +344,11 @@ def main():
                 exit()
             ast = parse(tokens)
             print(evaluator(ast))
-        except (SyntaxError) as err:
+        except SyntaxError as err:
             print("SyntaxError: ", err)
+            continue
+        except ZeroDivisionError:
+            print("Error: Can't divide by zero!")
             continue
 
 if __name__ == "__main__":
